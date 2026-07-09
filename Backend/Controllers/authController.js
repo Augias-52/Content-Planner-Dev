@@ -1,26 +1,127 @@
+
+
 const User = require("../models/User");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
 const registerUser = async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const {
+      nom,
+      prenom,
+      email,
+      telephone,
+      indicatif,
+      pays,
+      dateNaissance,
+      password,
+      confirmPassword,
+    } = req.body;
+
+    if (
+      !nom ||
+      !prenom ||
+      !email ||
+      !telephone ||
+      !indicatif ||
+      !pays ||
+      !dateNaissance ||
+      !password ||
+      !confirmPassword
+    ) {
+      return res.status(400).json({
+        message: "Tous les champs sont obligatoires",
+      });
+    }
+
+    if (password !== confirmPassword) {
+      return res.status(400).json({
+        message: "Les mots de passe ne correspondent pas",
+      });
+    }
+
+    const emailExiste = await User.findOne({ email });
+
+    if (emailExiste) {
+      return res.status(400).json({
+        message: "Cet email est déjà utilisé",
+      });
+    }
+
+    const telephoneExiste = await User.findOne({ telephone });
+
+    if (telephoneExiste) {
+      return res.status(400).json({
+        message: "Ce numéro de téléphone est déjà utilisé",
+      });
+    }
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    const verificationCode = Math.floor(
+      100000 + Math.random() * 900000
+    ).toString();
+
     const user = await User.create({
-      name,
+      nom,
+      prenom,
       email,
+      telephone,
+      indicatif,
+      pays,
+      dateNaissance,
       password: hashedPassword,
+      verificationCode,
     });
 
     return res.status(201).json({
-      message: "Utilisateur créé",
+      message: "Utilisateur créé avec succès",
       user,
     });
   } catch (error) {
     return res.status(500).json({
       message: "Erreur création utilisateur",
+      error: error.message,
+    });
+  }
+};
+
+const verifyUser = async (req, res) => {
+  try {
+    const { email, code } = req.body;
+
+    if (!email || !code) {
+      return res.status(400).json({
+        message: "Email et code obligatoires",
+      });
+    }
+
+    const user = await User.findOne({ email });
+
+    if (!user) {
+      return res.status(404).json({
+        message: "Utilisateur introuvable",
+      });
+    }
+
+    if (user.verificationCode !== code) {
+      return res.status(400).json({
+        message: "Code de vérification incorrect",
+      });
+    }
+
+    user.isVerified = true;
+    user.accountStatus = "active";
+    user.verificationCode = null;
+
+    await user.save();
+
+    return res.status(200).json({
+      message: "Compte vérifié avec succès",
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Erreur lors de la vérification",
       error: error.message,
     });
   }
@@ -41,6 +142,13 @@ const loginUser = async (req, res) => {
     if (!user) {
       return res.status(401).json({
         message: "Email ou mot de passe incorrect",
+      });
+    }
+
+    if (!user.isVerified) {
+      return res.status(403).json({
+        message:
+          "Veuillez vérifier votre compte avant de vous connecter",
       });
     }
 
@@ -71,7 +179,8 @@ const loginUser = async (req, res) => {
       token,
       user: {
         id: user._id,
-        name: user.name,
+        nom: user.nom,
+        prenom: user.prenom,
         email: user.email,
         role: user.role,
       },
@@ -87,4 +196,5 @@ const loginUser = async (req, res) => {
 module.exports = {
   registerUser,
   loginUser,
+  verifyUser,
 };
